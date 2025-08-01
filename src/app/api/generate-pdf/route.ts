@@ -1,183 +1,190 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs/promises';
-import path from 'path';
-
-const execAsync = promisify(exec);
 
 export async function POST(request: NextRequest) {
   try {
-    const { latexCode, filename = 'resume' } = await request.json();
+    const { optimizedResume, personalInfo } = await request.json();
 
-    if (!latexCode) {
-      return NextResponse.json({ error: 'LaTeX code is required' }, { status: 400 });
-    }
-
-    console.log('📄 Generating PDF from LaTeX...');
-
-    // Use /tmp directory for Vercel serverless environment
-    const tempDir = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'temp');
+    // Create HTML content for PDF generation
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Resume</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            background: white;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #2563eb;
+            padding-bottom: 10px;
+        }
+        .name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e40af;
+            margin-bottom: 5px;
+        }
+        .contact {
+            font-size: 10px;
+            color: #666;
+        }
+        .section {
+            margin-bottom: 15px;
+        }
+        .section-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #1e40af;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 2px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        .content {
+            margin-left: 10px;
+        }
+        .job-title {
+            font-weight: bold;
+            color: #374151;
+        }
+        .company {
+            font-style: italic;
+            color: #6b7280;
+        }
+        .duration {
+            float: right;
+            color: #9ca3af;
+            font-size: 10px;
+        }
+        .description {
+            margin-top: 5px;
+            margin-bottom: 10px;
+        }
+        .skills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .skill {
+            background: #eff6ff;
+            color: #1e40af;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+        ul {
+            margin: 5px 0;
+            padding-left: 15px;
+        }
+        li {
+            margin-bottom: 2px;
+        }
+        @media print {
+            body { margin: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="name">${personalInfo?.name || 'Professional Resume'}</div>
+        <div class="contact">
+            ${personalInfo?.email || ''} 
+            ${personalInfo?.phone ? ` • ${personalInfo.phone}` : ''} 
+            ${personalInfo?.location ? ` • ${personalInfo.location}` : ''}
+            ${personalInfo?.linkedin ? ` • ${personalInfo.linkedin}` : ''}
+        </div>
+    </div>
     
-    // Only create directory if not using /tmp (which always exists on Vercel)
-    if (!process.env.VERCEL) {
-      await fs.mkdir(tempDir, { recursive: true });
-    }
+    <div class="content">
+        ${formatResumeContent(optimizedResume)}
+    </div>
+</body>
+</html>`;
 
-    // Generate unique filename
-    const timestamp = Date.now();
-    const texFile = path.join(tempDir, `${filename}_${timestamp}.tex`);
-    const pdfFile = path.join(tempDir, `${filename}_${timestamp}.pdf`);
-
-    try {
-      // Write LaTeX content to file
-      await fs.writeFile(texFile, latexCode, 'utf8');
-
-      // Check if pdflatex is available (won't be available on Vercel)
-      const isVercel = !!process.env.VERCEL;
-      
-      if (isVercel) {
-        console.log('🚀 Running on Vercel - LaTeX not available, providing LaTeX code for manual compilation');
-        
-        return NextResponse.json({ 
-          success: true,
-          error: null,
-          latexCode,
-          pdfData: null,
-          filename: `${filename}.tex`,
-          message: 'LaTeX code generated successfully. Use an online LaTeX compiler to generate PDF.',
-          instructions: [
-            '1. Copy the LaTeX code below',
-            '2. Go to Overleaf.com or another online LaTeX editor',
-            '3. Create a new project and paste the code',
-            '4. Compile to generate your PDF resume'
-          ],
-          onlineEditors: [
-            'https://www.overleaf.com',
-            'https://latex.codecogs.com/eqneditor/editor.php'
-          ]
-        }, { status: 200 });
-      }
-
-      try {
-        await execAsync('which pdflatex');
-      } catch {
-        console.log('⚠️ pdflatex not found, providing LaTeX code for manual compilation');
-        return NextResponse.json({ 
-          success: true,
-          error: null,
-          latexCode,
-          pdfData: null,
-          filename: `${filename}.tex`,
-          message: 'LaTeX code generated successfully. PDF generation requires LaTeX installation.',
-          instructions: [
-            '1. Install TeXLive or MiKTeX on your system',
-            '2. Save the LaTeX code as a .tex file',
-            '3. Run: pdflatex filename.tex',
-            'OR use an online compiler like Overleaf.com'
-          ]
-        }, { status: 200 });
-      }
-
-      // Compile LaTeX to PDF using pdflatex (compatible template)
-      const compileOptions = {
-        cwd: tempDir,
-        timeout: 30000 // 30 second timeout
-      };
-
-      await execAsync(`pdflatex -interaction=nonstopmode "${path.basename(texFile)}"`, compileOptions);
-      
-      // Run again for cross-references and table of contents
-      try {
-        await execAsync(`pdflatex -interaction=nonstopmode "${path.basename(texFile)}"`, compileOptions);
-      } catch {
-        console.log('⚠️ Second LaTeX compilation failed, but PDF should still be generated');
-      }
-
-      // Check if PDF was created
-      try {
-        await fs.access(pdfFile);
-      } catch {
-        throw new Error('PDF generation failed - file not created');
-      }
-
-      // Read the generated PDF
-      const pdfBuffer = await fs.readFile(pdfFile);
-
-      // Clean up temporary files
-      await cleanupTempFiles(tempDir, timestamp.toString());
-
-      // Return PDF as base64 for download
-      const base64Pdf = pdfBuffer.toString('base64');
-
-      return NextResponse.json({
-        success: true,
-        pdfData: base64Pdf,
-        filename: `${filename}.pdf`,
-        message: 'PDF generated successfully'
-      });
-
-    } catch (error) {
-      // Clean up on error
-      await cleanupTempFiles(tempDir, timestamp.toString());
-      throw error;
-    }
+    // Return HTML for client-side PDF generation
+    return NextResponse.json({
+      success: true,
+      htmlContent: htmlContent,
+      message: 'HTML content generated for PDF conversion'
+    });
 
   } catch (error) {
-    console.error('❌ PDF generation failed:', error);
-    
+    console.error('PDF generation failed:', error);
     return NextResponse.json({
-      error: 'Failed to generate PDF',
-      details: error instanceof Error ? error.message : 'Unknown error',
-      suggestion: 'Try downloading the LaTeX code and compile it locally'
+      error: 'Failed to generate PDF content',
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }
 }
 
-async function cleanupTempFiles(tempDir: string, timestamp: string) {
-  try {
-    const files = await fs.readdir(tempDir);
-    
-    // Remove files with the timestamp
-    const filesToDelete = files.filter(file => file.includes(timestamp));
-    
-    await Promise.all(
-      filesToDelete.map(file => 
-        fs.unlink(path.join(tempDir, file)).catch(() => {
-          // Ignore cleanup errors
-        })
-      )
-    );
-    
-    console.log('🧹 Cleaned up temporary files');
-  } catch (error) {
-    console.warn('⚠️ Failed to cleanup temporary files:', error);
-  }
-}
-
-// Alternative method using online LaTeX compiler (fallback)
-export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const latex = searchParams.get('latex');
+function formatResumeContent(resumeText: string): string {
+  const sections = resumeText.split(/\n\s*\n/);
+  let html = '';
   
-  if (!latex) {
-    return NextResponse.json({ error: 'LaTeX code required' }, { status: 400 });
-  }
-
-  // Return instructions for manual compilation
-  return NextResponse.json({
-    message: 'Manual LaTeX compilation required',
-    instructions: [
-      '1. Copy the LaTeX code provided',
-      '2. Visit an online LaTeX editor like Overleaf (overleaf.com)',
-      '3. Create a new project and paste the code',
-      '4. Compile to generate your PDF resume',
-      '5. Download the generated PDF'
-    ],
-    onlineEditors: [
-      'https://www.overleaf.com',
-      'https://latex.codecogs.com/eqneditor/editor.php',
-      'https://latexbase.com'
-    ]
+  sections.forEach(section => {
+    const lines = section.trim().split('\n');
+    if (lines.length === 0) return;
+    
+    const firstLine = lines[0].trim();
+    
+    // Check if it's a section header (all caps or starts with common section names)
+    if (firstLine.match(/^(PROFESSIONAL SUMMARY|EXPERIENCE|EDUCATION|SKILLS|CERTIFICATIONS|PROJECTS|SUMMARY)/i) ||
+        firstLine === firstLine.toUpperCase()) {
+      html += `<div class="section">
+        <div class="section-title">${firstLine}</div>
+        <div class="content">`;
+      
+      // Add content for this section
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        // Check if it's a job/education entry
+        if (line.includes('|') || line.match(/\d{4}[-–]\d{4}|\d{4}[-–]Present/)) {
+          const parts = line.split('|');
+          if (parts.length >= 2) {
+            html += `<div style="margin-bottom: 10px;">
+              <div class="job-title">${parts[0].trim()}</div>
+              <div class="company">${parts[1].trim()} ${parts[2] ? `<span class="duration">${parts[2].trim()}</span>` : ''}</div>
+            </div>`;
+          } else {
+            html += `<div class="job-title">${line}</div>`;
+          }
+        }
+        // Skills section
+        else if (firstLine.toUpperCase().includes('SKILLS') && line.includes(',')) {
+          const skills = line.split(',').map(skill => skill.trim());
+          html += '<div class="skills">';
+          skills.forEach(skill => {
+            if (skill) html += `<span class="skill">${skill}</span>`;
+          });
+          html += '</div>';
+        }
+        // Bullet points
+        else if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
+          if (!html.includes('<ul>')) html += '<ul>';
+          html += `<li>${line.substring(1).trim()}</li>`;
+        }
+        // Regular content
+        else {
+          if (html.includes('<ul>') && !html.includes('</ul>')) html += '</ul>';
+          html += `<div class="description">${line}</div>`;
+        }
+      }
+      
+      if (html.includes('<ul>') && !html.includes('</ul>')) html += '</ul>';
+      html += '</div></div>';
+    }
   });
+  
+  return html;
 }
