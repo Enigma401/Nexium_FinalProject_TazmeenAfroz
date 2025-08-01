@@ -63,6 +63,7 @@ export default function CreateResume() {
   const [optimizedResume, setOptimizedResume] = useState('');
   const [latexCode, setLatexCode] = useState('');
   const [error, setError] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
   const router = useRouter();
   
   const supabase = createBrowserClient(
@@ -209,15 +210,131 @@ export default function CreateResume() {
   };
 
   const downloadPDF = async () => {
-    if (!latexCode) {
-      setError('No LaTeX code available for PDF generation');
+    if (!optimizedResume.trim()) {
+      setError('No resume content available for PDF generation');
       return;
     }
 
     setError('');
+    setIsDownloading(true);
     
     try {
-      // Try the direct PDF generation first
+      console.log('🚀 Starting PDF download...');
+
+      // Try client-side PDF generation with jsPDF first
+      try {
+        console.log('📄 Attempting client-side PDF generation...');
+        
+        // Dynamic import to avoid SSR issues
+        const { jsPDF } = await import('jspdf');
+        
+        const doc = new jsPDF();
+        
+        // Set up PDF styling
+        const pageWidth = doc.internal.pageSize.width;
+        const pageHeight = doc.internal.pageSize.height;
+        const margin = 20;
+        const lineHeight = 6;
+        let yPosition = margin;
+        
+        // Helper function to add text with wrapping
+        const addText = (text: string, fontSize: number = 10, isBold: boolean = false) => {
+          if (yPosition > pageHeight - margin) {
+            doc.addPage();
+            yPosition = margin;
+          }
+          
+          doc.setFontSize(fontSize);
+          doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+          
+          const lines = doc.splitTextToSize(text, pageWidth - (2 * margin));
+          lines.forEach((line: string) => {
+            if (yPosition > pageHeight - margin) {
+              doc.addPage();
+              yPosition = margin;
+            }
+            doc.text(line, margin, yPosition);
+            yPosition += lineHeight;
+          });
+          yPosition += 2; // Extra space
+        };
+
+        // Add header
+        const personalInfo = extractedInfo?.personalInfo;
+        if (personalInfo?.name) {
+          doc.setFontSize(20);
+          doc.setFont('helvetica', 'bold');
+          doc.text(personalInfo.name, pageWidth / 2, yPosition, { align: 'center' });
+          yPosition += 10;
+          
+          // Contact info
+          const contactInfo = [
+            personalInfo.email,
+            personalInfo.phone,
+            personalInfo.location
+          ].filter(Boolean).join(' • ');
+          
+          if (contactInfo) {
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(contactInfo, pageWidth / 2, yPosition, { align: 'center' });
+            yPosition += 15;
+          }
+        }
+
+        // Process resume content
+        const sections = optimizedResume.split(/\n\s*\n/);
+        
+        sections.forEach(section => {
+          const lines = section.trim().split('\n');
+          if (lines.length === 0) return;
+          
+          const firstLine = lines[0].trim();
+          
+          // Check if it's a section header
+          if (firstLine.match(/^(PROFESSIONAL SUMMARY|EXPERIENCE|EDUCATION|SKILLS|CERTIFICATIONS|PROJECTS|SUMMARY)/i) ||
+              firstLine === firstLine.toUpperCase()) {
+            
+            // Add section title
+            addText(firstLine, 12, true);
+            
+            // Add section content
+            for (let i = 1; i < lines.length; i++) {
+              const line = lines[i].trim();
+              if (line) {
+                if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
+                  addText(`• ${line.substring(1).trim()}`, 10, false);
+                } else {
+                  addText(line, 10, false);
+                }
+              }
+            }
+            yPosition += 5; // Extra space between sections
+          }
+        });
+
+        // Generate and download PDF
+        const pdfBlob = doc.output('blob');
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${personalInfo?.name?.replace(/\s+/g, '_') || 'resume'}_optimized.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        console.log('✅ PDF generated and downloaded successfully with jsPDF');
+        setError('✅ PDF downloaded successfully!');
+        return;
+        
+      } catch (jsPdfError) {
+        console.log('❌ jsPDF failed, trying server method:', jsPdfError);
+      }
+
+      // Fallback to server-side HTML generation
+      console.log('🔄 Trying server-side PDF generation...');
+      
       const directResponse = await fetch('/api/generate-pdf-direct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -228,28 +345,34 @@ export default function CreateResume() {
       });
       
       const directResult = await directResponse.json();
+      console.log('Direct PDF result:', directResult);
       
       if (directResult.success && directResult.htmlContent) {
-        // Create a new window with the HTML content for printing
         const printWindow = window.open('', '_blank');
         if (printWindow) {
           printWindow.document.write(directResult.htmlContent);
           printWindow.document.close();
           
-          // Wait for content to load then trigger print
           printWindow.onload = () => {
             setTimeout(() => {
               printWindow.print();
-              // Note: User will need to select "Save as PDF" in the print dialog
             }, 500);
           };
           
-          setError('Print dialog opened. Please select "Save as PDF" to download your resume.');
+          setError('✅ Print dialog opened. Please select "Save as PDF" to download your resume.');
+          return;
+        } else {
+          setError('⚠️ Pop-up blocked. Please allow pop-ups and try again.');
           return;
         }
       }
 
-      // Fallback to LaTeX method
+      // Final fallback to LaTeX method
+      if (!latexCode) {
+        setError('No LaTeX code available. Please regenerate the resume.');
+        return;
+      }
+
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -257,9 +380,9 @@ export default function CreateResume() {
       });
       
       const result = await response.json();
+      console.log('LaTeX PDF result:', result);
       
       if (result.success && result.pdfData) {
-        // PDF was generated successfully - download it
         const binaryString = atob(result.pdfData);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -276,12 +399,10 @@ export default function CreateResume() {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
       } else if (result.success && result.latexCode) {
-        // LaTeX code provided for manual compilation
         setError(
           `${result.message}\n\nInstructions:\n${result.instructions?.join('\n') || ''}\n\nOnline editors: ${result.onlineEditors?.join(', ') || ''}`
         );
         
-        // Auto-download the LaTeX code
         const blob = new Blob([result.latexCode], { type: 'text/plain' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -292,11 +413,13 @@ export default function CreateResume() {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
       } else {
-        setError(result.error || result.message || 'PDF generation failed. You can copy the LaTeX code and compile it manually.');
+        setError(`PDF generation failed: ${result.error || result.message || 'Unknown error'}`);
       }
     } catch (err) {
       console.error('Error downloading PDF:', err);
-      setError('Failed to generate PDF. You can copy the LaTeX code and compile it manually.');
+      setError(`Network error: ${err instanceof Error ? err.message : 'Failed to connect to PDF service'}`);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -684,10 +807,25 @@ JavaScript, React, Node.js, Python, SQL, AWS"
                   </Button>
                   <Button
                     onClick={downloadPDF}
+                    disabled={isDownloading}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white"
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    Download PDF
+                    {isDownloading ? 'Generating PDF...' : 'Download PDF'}
+                  </Button>
+                  
+                  {/* Debug button for testing */}
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      console.log('Debug info:');
+                      console.log('optimizedResume:', optimizedResume.substring(0, 100) + '...');
+                      console.log('extractedInfo:', extractedInfo);
+                      console.log('latexCode available:', !!latexCode);
+                    }}
+                    className="border-yellow-700 text-yellow-300 hover:bg-yellow-800 hover:text-white text-xs"
+                  >
+                    Debug
                   </Button>
                 </div>
               </CardContent>
