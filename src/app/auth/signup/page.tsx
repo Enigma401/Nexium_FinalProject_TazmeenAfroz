@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function SignupPage() {
   const [email, setEmail] = useState('');
@@ -15,6 +16,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const router = useRouter();
   
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,23 +42,17 @@ export default function SignupPage() {
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: {
-            email_confirm: process.env.NODE_ENV === 'development' // Auto-confirm in dev
-          }
-        },
       });
 
       if (error) {
         setError(error.message);
-      } else if (process.env.NEXT_PUBLIC_DEV_MODE === 'true') {
-        // In development, try to sign in immediately after signup
-        setMessage('Account created! Signing you in...');
+      } else if (data.user) {
+        setMessage('Account created successfully! Signing you in...');
         
+        // Small delay for UX
         setTimeout(async () => {
           const { error: signInError } = await supabase.auth.signInWithPassword({
             email,
@@ -64,39 +60,15 @@ export default function SignupPage() {
           });
           
           if (!signInError) {
-            window.location.href = '/dashboard';
+            router.push('/dashboard');
           } else {
-            setMessage('Account created! Please check your email for confirmation.');
+            setError('Failed to sign in automatically');
           }
         }, 1000);
-      } else {
-        setMessage('Check your email for the confirmation link!');
       }
     } catch {
       setError('An unexpected error occurred');
     } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleSignup = async () => {
-    setLoading(true);
-    setError('');
-
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/dashboard`,
-        },
-      });
-
-      if (error) {
-        setError(error.message);
-        setLoading(false);
-      }
-    } catch {
-      setError('An unexpected error occurred');
       setLoading(false);
     }
   };
@@ -168,29 +140,10 @@ export default function SignupPage() {
               {loading ? 'Creating account...' : 'Create Account'}
             </Button>
           </form>
-          
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-emerald-800" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-gray-900 px-2 text-gray-400">Or continue with</span>
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleGoogleSignup}
-            disabled={loading}
-            className="w-full border-emerald-700 text-emerald-300 hover:bg-emerald-800 hover:text-white"
-          >
-            {loading ? 'Connecting...' : 'Sign up with Google'}
-          </Button>
         </CardContent>
       </Card>
 
-      <div className="text-center text-sm text-gray-400">
+      <div className="text-center text-sm text-gray-400 mt-4">
         Already have an account?{' '}
         <Link href="/auth/login" className="text-emerald-400 hover:text-emerald-300 underline">
           Sign in
