@@ -226,7 +226,7 @@ export default function CreateResume() {
       const result = await response.json();
       
       if (result.success && result.pdfData) {
-        // Convert base64 to blob and download
+        // PDF was generated successfully - download it
         const binaryString = atob(result.pdfData);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -242,8 +242,24 @@ export default function CreateResume() {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
+      } else if (result.success && result.latexCode) {
+        // LaTeX code provided for manual compilation
+        setError(
+          `${result.message}\n\nInstructions:\n${result.instructions?.join('\n') || ''}\n\nOnline editors: ${result.onlineEditors?.join(', ') || ''}`
+        );
+        
+        // Auto-download the LaTeX code
+        const blob = new Blob([result.latexCode], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = result.filename || 'resume.tex';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
       } else {
-        setError(result.error || 'PDF generation failed. You can copy the LaTeX code and compile it manually.');
+        setError(result.error || result.message || 'PDF generation failed. You can copy the LaTeX code and compile it manually.');
       }
     } catch (err) {
       console.error('Error downloading PDF:', err);
@@ -593,6 +609,26 @@ JavaScript, React, Node.js, Python, SQL, AWS"
                     className="w-full h-32 p-4 bg-gray-800 border border-emerald-700 rounded-lg text-white font-mono text-sm focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
+
+                {/* PDF Generation Notice for Vercel */}
+                {typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') && (
+                  <div className="p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
+                    <div className="flex items-start space-x-2">
+                      <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <p className="text-blue-400 font-medium">PDF Generation Notice</p>
+                        <p className="text-blue-300 text-sm mt-1">
+                          Since this app is hosted on Vercel, direct PDF generation isn&apos;t available. 
+                          Clicking &quot;Download PDF&quot; will download the LaTeX code that you can compile 
+                          using <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer" 
+                          className="underline hover:text-blue-200">Overleaf.com</a> or other LaTeX editors.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Actions */}
                 <div className="flex flex-wrap gap-3">
