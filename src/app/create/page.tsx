@@ -19,6 +19,7 @@ import {
   Copy,
   RefreshCw
 } from 'lucide-react';
+import jsPDF from 'jspdf';
 
 interface UserType {
   id: string;
@@ -219,205 +220,237 @@ export default function CreateResume() {
     setIsDownloading(true);
     
     try {
-      console.log('🚀 Starting PDF download...');
-
-      // Try client-side PDF generation with jsPDF first
-      try {
-        console.log('📄 Attempting client-side PDF generation...');
+      console.log('🚀 Creating professional PDF with jsPDF...');
+      
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      const pageHeight = doc.internal.pageSize.height;
+      const margin = 20;
+      let yPosition = margin;
+      
+      // Professional color scheme
+      const primaryColor = [6, 78, 59]; // Dark green
+      const accentColor = [16, 185, 129]; // Emerald
+      const textColor = [0, 0, 0]; // Black
+      const lightGray = [128, 128, 128]; // Gray for dates/details
+      
+      // Helper function to check if we need a new page
+      const checkPageBreak = (additionalHeight = 10) => {
+        if (yPosition + additionalHeight > pageHeight - margin) {
+          doc.addPage();
+          yPosition = margin;
+          return true;
+        }
+        return false;
+      };
+      
+      // Helper function to add styled text
+      const addText = (text: string, fontSize = 10, fontWeight = 'normal', color = textColor, alignment = 'left') => {
+        doc.setFontSize(fontSize);
+        doc.setFont('helvetica', fontWeight);
+        doc.setTextColor(color[0], color[1], color[2]);
         
-        // Dynamic import to avoid SSR issues
-        const { jsPDF } = await import('jspdf');
+        const textWidth = pageWidth - (2 * margin);
+        const lines = doc.splitTextToSize(text, textWidth);
         
-        const doc = new jsPDF();
-        
-        // Set up PDF styling
-        const pageWidth = doc.internal.pageSize.width;
-        const pageHeight = doc.internal.pageSize.height;
-        const margin = 20;
-        const lineHeight = 6;
-        let yPosition = margin;
-        
-        // Helper function to add text with wrapping
-        const addText = (text: string, fontSize: number = 10, isBold: boolean = false) => {
-          if (yPosition > pageHeight - margin) {
-            doc.addPage();
-            yPosition = margin;
-          }
-          
-          doc.setFontSize(fontSize);
-          doc.setFont('helvetica', isBold ? 'bold' : 'normal');
-          
-          const lines = doc.splitTextToSize(text, pageWidth - (2 * margin));
-          lines.forEach((line: string) => {
-            if (yPosition > pageHeight - margin) {
-              doc.addPage();
-              yPosition = margin;
-            }
+        lines.forEach((line: string) => {
+          checkPageBreak();
+          if (alignment === 'center') {
+            doc.text(line, pageWidth / 2, yPosition, { align: 'center' });
+          } else {
             doc.text(line, margin, yPosition);
-            yPosition += lineHeight;
-          });
-          yPosition += 2; // Extra space
-        };
+          }
+          yPosition += fontSize * 0.4;
+        });
+      };
+      
+      // Helper function to add section divider
+      const addSectionDivider = () => {
+        yPosition += 3;
+        checkPageBreak();
+        doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2]);
+        doc.setLineWidth(0.5);
+        doc.line(margin, yPosition, pageWidth - margin, yPosition);
+        yPosition += 8;
+      };
 
-        // Add header
-        const personalInfo = extractedInfo?.personalInfo;
-        if (personalInfo?.name) {
-          doc.setFontSize(20);
+      // Extract personal info from the beginning of resume text
+      const personalInfo = extractedInfo?.personalInfo;
+      
+      // Header Section with Personal Info
+      if (personalInfo?.name) {
+        // Name - Large, bold, centered
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.text(personalInfo.name, pageWidth / 2, yPosition, { align: 'center' });
+        yPosition += 12;
+        
+        // Contact Info - Centered
+        const contactItems = [];
+        if (personalInfo.email) contactItems.push(personalInfo.email);
+        if (personalInfo.phone) contactItems.push(personalInfo.phone);
+        if (personalInfo.location) contactItems.push(personalInfo.location);
+        if (personalInfo.linkedin) contactItems.push(personalInfo.linkedin);
+        if (personalInfo.website) contactItems.push(personalInfo.website);
+        
+        if (contactItems.length > 0) {
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+          doc.text(contactItems.join(' • '), pageWidth / 2, yPosition, { align: 'center' });
+          yPosition += 8;
+        }
+        
+        addSectionDivider();
+      }
+
+      // Process the optimized resume content
+      const cleanContent = optimizedResume
+        .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold markdown
+        .replace(/\*([^*]+)\*/g, '$1') // Remove italic markdown
+        .replace(/^\* /gm, '• ') // Convert asterisks to bullets
+        .replace(/^- /gm, '• ') // Convert dashes to bullets
+        .trim();
+
+      // Split content into sections
+      const sections = cleanContent.split(/\n\s*\n/).filter(section => section.trim());
+      
+      sections.forEach((section, sectionIndex) => {
+        const lines = section.trim().split('\n').filter(line => line.trim());
+        if (lines.length === 0) return;
+        
+        const firstLine = lines[0].trim();
+        
+        // Check if it's a section header
+        const isMainSection = firstLine.match(/^(PROFESSIONAL SUMMARY|SUMMARY|EXPERIENCE|WORK EXPERIENCE|EDUCATION|SKILLS|TECHNICAL SKILLS|CERTIFICATIONS|PROJECTS|ACHIEVEMENTS|LANGUAGES|INTERESTS|AWARDS)/i);
+        const isAllCaps = firstLine === firstLine.toUpperCase() && firstLine.length > 3;
+        
+        if (isMainSection || isAllCaps) {
+          // Add extra space before new sections (except first)
+          if (sectionIndex > 0) yPosition += 5;
+          
+          checkPageBreak(15);
+          
+          // Section Header - Bold, dark green
+          doc.setFontSize(14);
           doc.setFont('helvetica', 'bold');
-          doc.text(personalInfo.name, pageWidth / 2, yPosition, { align: 'center' });
+          doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+          doc.text(firstLine, margin, yPosition);
           yPosition += 10;
           
-          // Contact info
-          const contactInfo = [
-            personalInfo.email,
-            personalInfo.phone,
-            personalInfo.location
-          ].filter(Boolean).join(' • ');
+          // Underline for section
+          doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2]);
+          doc.setLineWidth(0.3);
+          doc.line(margin, yPosition - 2, margin + 60, yPosition - 2);
+          yPosition += 3;
           
-          if (contactInfo) {
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            doc.text(contactInfo, pageWidth / 2, yPosition, { align: 'center' });
-            yPosition += 15;
-          }
-        }
-
-        // Process resume content
-        const sections = optimizedResume.split(/\n\s*\n/);
-        
-        sections.forEach(section => {
-          const lines = section.trim().split('\n');
-          if (lines.length === 0) return;
-          
-          const firstLine = lines[0].trim();
-          
-          // Check if it's a section header
-          if (firstLine.match(/^(PROFESSIONAL SUMMARY|EXPERIENCE|EDUCATION|SKILLS|CERTIFICATIONS|PROJECTS|SUMMARY)/i) ||
-              firstLine === firstLine.toUpperCase()) {
+          // Process section content
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
             
-            // Add section title
-            addText(firstLine, 12, true);
+            checkPageBreak();
             
-            // Add section content
-            for (let i = 1; i < lines.length; i++) {
-              const line = lines[i].trim();
-              if (line) {
-                if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
-                  addText(`• ${line.substring(1).trim()}`, 10, false);
-                } else {
-                  addText(line, 10, false);
+            // Check for job titles/education entries (contain | or years)
+            if (line.includes('|') || line.match(/\b\d{4}\b/) || line.match(/^[A-Z][a-zA-Z\s&]+ [-|] /)) {
+              // Job title or education entry - Bold
+              doc.setFontSize(11);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+              
+              const parts = line.split('|').map(p => p.trim());
+              if (parts.length >= 2) {
+                // Format: Title | Company | Date
+                doc.text(parts[0], margin, yPosition);
+                if (parts[1]) {
+                  doc.setFont('helvetica', 'normal');
+                  doc.text(`at ${parts[1]}`, margin, yPosition + 6);
                 }
+                if (parts[2]) {
+                  doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+                  doc.text(parts[2], pageWidth - margin, yPosition, { align: 'right' });
+                }
+                yPosition += 12;
+              } else {
+                // Single line job/education entry
+                doc.text(line, margin, yPosition);
+                yPosition += 8;
               }
             }
-            yPosition += 5; // Extra space between sections
+            // Bullet points
+            else if (line.startsWith('•') || line.startsWith('-')) {
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+              
+              const bulletText = line.substring(1).trim();
+              const bulletLines = doc.splitTextToSize(`• ${bulletText}`, pageWidth - (2 * margin + 10));
+              
+              bulletLines.forEach((bulletLine: string, index: number) => {
+                checkPageBreak();
+                doc.text(bulletLine, margin + (index === 0 ? 0 : 10), yPosition);
+                yPosition += 5;
+              });
+              yPosition += 1; // Extra space after bullet
+            }
+            // Skills section - comma separated
+            else if (firstLine.match(/SKILLS/i) && line.includes(',')) {
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+              
+              const skills = line.split(',').map(s => s.trim()).filter(s => s);
+              const skillsPerLine = 4;
+              
+              for (let j = 0; j < skills.length; j += skillsPerLine) {
+                checkPageBreak();
+                const lineSkills = skills.slice(j, j + skillsPerLine);
+                doc.text(`• ${lineSkills.join(' • ')}`, margin, yPosition);
+                yPosition += 6;
+              }
+            }
+            // Regular paragraph text
+            else {
+              doc.setFontSize(10);
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+              
+              const textLines = doc.splitTextToSize(line, pageWidth - (2 * margin));
+              textLines.forEach((textLine: string) => {
+                checkPageBreak();
+                doc.text(textLine, margin, yPosition);
+                yPosition += 5;
+              });
+            }
           }
-        });
-
-        // Generate and download PDF
-        const pdfBlob = doc.output('blob');
-        const url = URL.createObjectURL(pdfBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${personalInfo?.name?.replace(/\s+/g, '_') || 'resume'}_optimized.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        
-        console.log('✅ PDF generated and downloaded successfully with jsPDF');
-        setError('✅ PDF downloaded successfully!');
-        return;
-        
-      } catch (jsPdfError) {
-        console.log('❌ jsPDF failed, trying server method:', jsPdfError);
-      }
-
-      // Fallback to server-side HTML generation
-      console.log('🔄 Trying server-side PDF generation...');
-      
-      const directResponse = await fetch('/api/generate-pdf-direct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          optimizedResume,
-          personalInfo: extractedInfo?.personalInfo 
-        }),
-      });
-      
-      const directResult = await directResponse.json();
-      console.log('Direct PDF result:', directResult);
-      
-      if (directResult.success && directResult.htmlContent) {
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-          printWindow.document.write(directResult.htmlContent);
-          printWindow.document.close();
           
-          printWindow.onload = () => {
-            setTimeout(() => {
-              printWindow.print();
-            }, 500);
-          };
-          
-          setError('✅ Print dialog opened. Please select "Save as PDF" to download your resume.');
-          return;
-        } else {
-          setError('⚠️ Pop-up blocked. Please allow pop-ups and try again.');
-          return;
+          yPosition += 3; // Space after section
         }
-      }
-
-      // Final fallback to LaTeX method
-      if (!latexCode) {
-        setError('No LaTeX code available. Please regenerate the resume.');
-        return;
-      }
-
-      const response = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latexCode }),
       });
-      
-      const result = await response.json();
-      console.log('LaTeX PDF result:', result);
-      
-      if (result.success && result.pdfData) {
-        const binaryString = atob(result.pdfData);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        
-        const blob = new Blob([bytes], { type: 'application/pdf' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = result.filename || 'resume.pdf';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-      } else if (result.success && result.latexCode) {
-        setError(
-          `${result.message}\n\nInstructions:\n${result.instructions?.join('\n') || ''}\n\nOnline editors: ${result.onlineEditors?.join(', ') || ''}`
-        );
-        
-        const blob = new Blob([result.latexCode], { type: 'text/plain' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = result.filename || 'resume.tex';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-      } else {
-        setError(`PDF generation failed: ${result.error || result.message || 'Unknown error'}`);
+
+      // Footer
+      const totalPages = doc.getNumberOfPages();
+      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        doc.setPage(pageNum);
+        doc.setFontSize(8);
+        doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+        doc.text(`${personalInfo?.name || 'Resume'} - Page ${pageNum}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
       }
+
+      // Generate filename and download
+      const fileName = personalInfo?.name 
+        ? `${personalInfo.name.replace(/\s+/g, '_')}_Professional_Resume.pdf`
+        : 'Professional_Resume.pdf';
+
+      doc.save(fileName);
+      
+      console.log('✅ Professional PDF created successfully!');
+      setError('✅ Professional PDF downloaded successfully!');
+      
     } catch (err) {
-      console.error('Error downloading PDF:', err);
-      setError(`Network error: ${err instanceof Error ? err.message : 'Failed to connect to PDF service'}`);
+      console.error('❌ PDF generation failed:', err);
+      setError(`Failed to generate PDF: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsDownloading(false);
     }
@@ -767,20 +800,18 @@ JavaScript, React, Node.js, Python, SQL, AWS"
                 </div>
 
                 {/* PDF Generation Notice */}
-                <div className="p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
+                <div className="p-4 bg-emerald-900/20 border border-emerald-800 rounded-lg">
                   <div className="flex items-start space-x-2">
-                    <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <svg className="w-5 h-5 text-emerald-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <div>
-                      <p className="text-blue-400 font-medium">PDF Generation</p>
-                      <p className="text-blue-300 text-sm mt-1">
-                        Click &quot;Download PDF&quot; to open a print-friendly version. 
-                        In the print dialog, select &quot;Save as PDF&quot; to download your resume.
-                        {typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') && (
-                          <span> Alternatively, you can compile the LaTeX code using <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer" 
-                          className="underline hover:text-blue-200">Overleaf.com</a> for professional formatting.</span>
-                        )}
+                      <p className="text-emerald-400 font-medium">Professional PDF Generation</p>
+                      <p className="text-emerald-300 text-sm mt-1">
+                        Click &quot;Download Professional PDF&quot; to generate a beautifully formatted PDF with proper sections, 
+                        bold headings, professional styling, and all your resume details perfectly organized. 
+                        For even more advanced LaTeX formatting, you can also use <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer" 
+                        className="underline hover:text-emerald-200">Overleaf.com</a>.
                       </p>
                     </div>
                   </div>
@@ -812,20 +843,6 @@ JavaScript, React, Node.js, Python, SQL, AWS"
                   >
                     <Download className="w-4 h-4 mr-2" />
                     {isDownloading ? 'Generating PDF...' : 'Download PDF'}
-                  </Button>
-                  
-                  {/* Debug button for testing */}
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      console.log('Debug info:');
-                      console.log('optimizedResume:', optimizedResume.substring(0, 100) + '...');
-                      console.log('extractedInfo:', extractedInfo);
-                      console.log('latexCode available:', !!latexCode);
-                    }}
-                    className="border-yellow-700 text-yellow-300 hover:bg-yellow-800 hover:text-white text-xs"
-                  >
-                    Debug
                   </Button>
                 </div>
               </CardContent>
