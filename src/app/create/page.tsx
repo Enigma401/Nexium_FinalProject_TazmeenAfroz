@@ -217,6 +217,39 @@ export default function CreateResume() {
     setError('');
     
     try {
+      // Try the direct PDF generation first
+      const directResponse = await fetch('/api/generate-pdf-direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          optimizedResume,
+          personalInfo: extractedInfo?.personalInfo 
+        }),
+      });
+      
+      const directResult = await directResponse.json();
+      
+      if (directResult.success && directResult.htmlContent) {
+        // Create a new window with the HTML content for printing
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(directResult.htmlContent);
+          printWindow.document.close();
+          
+          // Wait for content to load then trigger print
+          printWindow.onload = () => {
+            setTimeout(() => {
+              printWindow.print();
+              // Note: User will need to select "Save as PDF" in the print dialog
+            }, 500);
+          };
+          
+          setError('Print dialog opened. Please select "Save as PDF" to download your resume.');
+          return;
+        }
+      }
+
+      // Fallback to LaTeX method
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -610,25 +643,25 @@ JavaScript, React, Node.js, Python, SQL, AWS"
                   />
                 </div>
 
-                {/* PDF Generation Notice for Vercel */}
-                {typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') && (
-                  <div className="p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
-                    <div className="flex items-start space-x-2">
-                      <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <div>
-                        <p className="text-blue-400 font-medium">PDF Generation Notice</p>
-                        <p className="text-blue-300 text-sm mt-1">
-                          Since this app is hosted on Vercel, direct PDF generation isn&apos;t available. 
-                          Clicking &quot;Download PDF&quot; will download the LaTeX code that you can compile 
-                          using <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer" 
-                          className="underline hover:text-blue-200">Overleaf.com</a> or other LaTeX editors.
-                        </p>
-                      </div>
+                {/* PDF Generation Notice */}
+                <div className="p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <svg className="w-5 h-5 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <p className="text-blue-400 font-medium">PDF Generation</p>
+                      <p className="text-blue-300 text-sm mt-1">
+                        Click &quot;Download PDF&quot; to open a print-friendly version. 
+                        In the print dialog, select &quot;Save as PDF&quot; to download your resume.
+                        {typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') && (
+                          <span> Alternatively, you can compile the LaTeX code using <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer" 
+                          className="underline hover:text-blue-200">Overleaf.com</a> for professional formatting.</span>
+                        )}
+                      </p>
                     </div>
                   </div>
-                )}
+                </div>
 
                 {/* Actions */}
                 <div className="flex flex-wrap gap-3">
