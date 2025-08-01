@@ -1,11 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+interface PersonalInfo {
+  name?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  linkedin?: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { optimizedResume, personalInfo } = await request.json();
+    console.log('📄 Generating PDF from resume text...');
+    console.log('Resume length:', optimizedResume?.length || 0);
+    console.log('Personal info:', personalInfo ? 'Present' : 'Missing');
 
-    // Create HTML content for PDF generation
-    const htmlContent = `
+    if (!optimizedResume?.trim()) {
+      console.log('❌ No resume content provided');
+      return NextResponse.json({
+        success: false,
+        error: 'No resume content provided'
+      }, { status: 400 });
+    }
+
+    // Generate HTML content for PDF
+    const htmlContent = generateResumeHTML(optimizedResume, personalInfo);
+
+    console.log('✅ HTML content generated successfully');
+    return NextResponse.json({
+      success: true,
+      htmlContent: htmlContent,
+      message: 'HTML content generated for PDF conversion'
+    });
+
+  } catch (error) {
+    console.error('❌ PDF generation failed:', error);
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to generate PDF content',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
+  }
+}
+
+function generateResumeHTML(resumeText: string, personalInfo: PersonalInfo): string {
+  return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -52,42 +91,6 @@ export async function POST(request: NextRequest) {
         .content {
             margin-left: 10px;
         }
-        .job-title {
-            font-weight: bold;
-            color: #374151;
-        }
-        .company {
-            font-style: italic;
-            color: #6b7280;
-        }
-        .duration {
-            float: right;
-            color: #9ca3af;
-            font-size: 10px;
-        }
-        .description {
-            margin-top: 5px;
-            margin-bottom: 10px;
-        }
-        .skills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 5px;
-        }
-        .skill {
-            background: #eff6ff;
-            color: #1e40af;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 10px;
-        }
-        ul {
-            margin: 5px 0;
-            padding-left: 15px;
-        }
-        li {
-            margin-bottom: 2px;
-        }
         @media print {
             body { margin: 0; }
         }
@@ -100,30 +103,14 @@ export async function POST(request: NextRequest) {
             ${personalInfo?.email || ''} 
             ${personalInfo?.phone ? ` • ${personalInfo.phone}` : ''} 
             ${personalInfo?.location ? ` • ${personalInfo.location}` : ''}
-            ${personalInfo?.linkedin ? ` • ${personalInfo.linkedin}` : ''}
         </div>
     </div>
     
     <div class="content">
-        ${formatResumeContent(optimizedResume)}
+        ${formatResumeContent(resumeText)}
     </div>
 </body>
 </html>`;
-
-    // Return HTML for client-side PDF generation
-    return NextResponse.json({
-      success: true,
-      htmlContent: htmlContent,
-      message: 'HTML content generated for PDF conversion'
-    });
-
-  } catch (error) {
-    console.error('PDF generation failed:', error);
-    return NextResponse.json({
-      error: 'Failed to generate PDF content',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
-  }
 }
 
 function formatResumeContent(resumeText: string): string {
@@ -136,52 +123,23 @@ function formatResumeContent(resumeText: string): string {
     
     const firstLine = lines[0].trim();
     
-    // Check if it's a section header (all caps or starts with common section names)
     if (firstLine.match(/^(PROFESSIONAL SUMMARY|EXPERIENCE|EDUCATION|SKILLS|CERTIFICATIONS|PROJECTS|SUMMARY)/i) ||
         firstLine === firstLine.toUpperCase()) {
       html += `<div class="section">
         <div class="section-title">${firstLine}</div>
         <div class="content">`;
       
-      // Add content for this section
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         
-        // Check if it's a job/education entry
-        if (line.includes('|') || line.match(/\d{4}[-–]\d{4}|\d{4}[-–]Present/)) {
-          const parts = line.split('|');
-          if (parts.length >= 2) {
-            html += `<div style="margin-bottom: 10px;">
-              <div class="job-title">${parts[0].trim()}</div>
-              <div class="company">${parts[1].trim()} ${parts[2] ? `<span class="duration">${parts[2].trim()}</span>` : ''}</div>
-            </div>`;
-          } else {
-            html += `<div class="job-title">${line}</div>`;
-          }
-        }
-        // Skills section
-        else if (firstLine.toUpperCase().includes('SKILLS') && line.includes(',')) {
-          const skills = line.split(',').map(skill => skill.trim());
-          html += '<div class="skills">';
-          skills.forEach(skill => {
-            if (skill) html += `<span class="skill">${skill}</span>`;
-          });
-          html += '</div>';
-        }
-        // Bullet points
-        else if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
-          if (!html.includes('<ul>')) html += '<ul>';
-          html += `<li>${line.substring(1).trim()}</li>`;
-        }
-        // Regular content
-        else {
-          if (html.includes('<ul>') && !html.includes('</ul>')) html += '</ul>';
-          html += `<div class="description">${line}</div>`;
+        if (line.startsWith('•') || line.startsWith('-') || line.startsWith('*')) {
+          html += `<div style="margin-left: 15px;">• ${line.substring(1).trim()}</div>`;
+        } else {
+          html += `<div style="margin-bottom: 5px;">${line}</div>`;
         }
       }
       
-      if (html.includes('<ul>') && !html.includes('</ul>')) html += '</ul>';
       html += '</div></div>';
     }
   });
