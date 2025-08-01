@@ -16,9 +16,13 @@ export async function POST(request: NextRequest) {
 
     console.log('📄 Generating PDF from LaTeX...');
 
-    // Create temporary directory
-    const tempDir = path.join(process.cwd(), 'temp');
-    await fs.mkdir(tempDir, { recursive: true });
+    // Use /tmp directory for Vercel serverless environment
+    const tempDir = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'temp');
+    
+    // Only create directory if not using /tmp (which always exists on Vercel)
+    if (!process.env.VERCEL) {
+      await fs.mkdir(tempDir, { recursive: true });
+    }
 
     // Generate unique filename
     const timestamp = Date.now();
@@ -29,15 +33,49 @@ export async function POST(request: NextRequest) {
       // Write LaTeX content to file
       await fs.writeFile(texFile, latexCode, 'utf8');
 
-      // Check if pdflatex is available
+      // Check if pdflatex is available (won't be available on Vercel)
+      const isVercel = !!process.env.VERCEL;
+      
+      if (isVercel) {
+        console.log('🚀 Running on Vercel - LaTeX not available, providing LaTeX code for manual compilation');
+        
+        return NextResponse.json({ 
+          success: true,
+          error: null,
+          latexCode,
+          pdfData: null,
+          filename: `${filename}.tex`,
+          message: 'LaTeX code generated successfully. Use an online LaTeX compiler to generate PDF.',
+          instructions: [
+            '1. Copy the LaTeX code below',
+            '2. Go to Overleaf.com or another online LaTeX editor',
+            '3. Create a new project and paste the code',
+            '4. Compile to generate your PDF resume'
+          ],
+          onlineEditors: [
+            'https://www.overleaf.com',
+            'https://latex.codecogs.com/eqneditor/editor.php'
+          ]
+        }, { status: 200 });
+      }
+
       try {
         await execAsync('which pdflatex');
       } catch {
-        console.log('⚠️ pdflatex not found, falling back to alternative method');
+        console.log('⚠️ pdflatex not found, providing LaTeX code for manual compilation');
         return NextResponse.json({ 
-          error: 'PDF generation requires LaTeX installation. Please install TeXLive or MiKTeX.',
+          success: true,
+          error: null,
           latexCode,
-          downloadUrl: null
+          pdfData: null,
+          filename: `${filename}.tex`,
+          message: 'LaTeX code generated successfully. PDF generation requires LaTeX installation.',
+          instructions: [
+            '1. Install TeXLive or MiKTeX on your system',
+            '2. Save the LaTeX code as a .tex file',
+            '3. Run: pdflatex filename.tex',
+            'OR use an online compiler like Overleaf.com'
+          ]
         }, { status: 200 });
       }
 
